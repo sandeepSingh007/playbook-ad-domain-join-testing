@@ -1,0 +1,131 @@
+---
+- name: Whitelisting Users and Groups with simple_allow_users and simple_allow_groups in sssd.conf (SLES 12 & 15)
+  hosts: all
+  become: true
+  vars:
+    # Example: Configure the following variables during runtime
+    # add_users: ["newuser1", "newuser2"]    # List of members to add (format: username)
+    # remove_users: ["olduser1"]             # List of members to be removed (format: username)
+    # add_groups: ["newgroup1"]              # List of groups to be added (format: groupname)
+    # remove_groups: ["oldgroup1"]           # List of groups to be removed (format: groupname)
+    ansible_python_interpreter: "{{ '/usr/bin/env python' if ansible_distribution_major_version|int == 12 else omit }}"
+
+  tasks:
+    - name: Extract OS major version from facts
+      set_fact:
+        ansible_distribution_major_version: "{{ ansible_distribution_version.split('.')[0] }}"
+
+    - name: Check the OS distribution supported for this play
+      fail:
+        msg: >
+          This playbook can only be run on SUSE 12 & 15.
+          You are running {{ ansible_distribution }} version {{ ansible_distribution_version }}.
+      when: >
+        (ansible_distribution != "SLES" or ansible_distribution_major_version|int not in [12, 15])
+
+    - name: Check if /etc/sssd/sssd.conf exists
+      stat:
+        path: /etc/sssd/sssd.conf
+      register: sssd_conf
+
+    - name: Fail if /etc/sssd/sssd.conf does not exist
+      fail:
+        msg: "The file /etc/sssd/sssd.conf does not exist. Cannot proceed."
+      when: not sssd_conf.stat.exists
+
+    - name: Ensure access_provider is set to simple in sssd.conf
+      lineinfile:
+        path: /etc/sssd/sssd.conf
+        regexp: '^access_provider ='
+        line: 'access_provider = simple'
+        create: true
+        backup: true
+
+    - name: Update simple_allow_users in sssd.conf
+      block:
+        - name: Get the existing simple_allow_users list
+          shell: "awk -F '=' '/^simple_allow_users/ {print $2}' /etc/sssd/sssd.conf"
+          register: current_users_raw
+          changed_when: false
+
+        - name: Set current simple_allow_users list
+          set_fact:
+            current_users: "{{ current_users_raw.stdout.split(',') | map('trim') | select('match', '.+') | list }}"
+          when: current_users_raw.stdout != ""
+
+        - name: Initialize current_users list if it doesn't exist
+          set_fact:
+            current_users: []
+          when: current_users_raw.stdout == ""
+
+        - name: Update simple_allow_users list
+          set_fact:
+            updated_simple_allow_users: "{{ ((current_users|default([])) + (add_users|default([]))) | difference(remove_users|default([])) | unique | list }}"
+
+        - name: Write simple_allow_users to sssd.conf
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_users'
+            line: "simple_allow_users = {{ updated_simple_allow_users | join(', ') }}"
+            create: true
+            backup: true
+
+    - name: Update simple_allow_groups in sssd.conf
+      block:
+        - name: Get the existing simple_allow_groups list
+          shell: "awk -F '=' '/^simple_allow_groups/ {print $2}' /etc/sssd/sssd.conf"
+          register: current_groups_raw
+          changed_when: false
+          ignore_errors: true
+
+        - name: Set current simple_allow_groups list
+          set_fact:
+            current_groups: "{{ current_groups_raw.stdout.split(',') | map('trim') | select('match', '.+') | list }}"
+          when: current_groups_raw.stdout != ""
+          ignore_errors: true
+
+        - name: Initialize current_groups list if it doesn't exist
+          set_fact:
+            current_groups: []
+          when: current_groups_raw.stdout == ""
+
+        - name: Update simple_allow_groups list
+          set_fact:
+            updated_simple_allow_groups: "{{ ((current_groups|default([])) + (add_groups|default([]))) | difference(remove_groups|default([])) | unique | list }}"
+          ignore_errors: true
+
+        - name: Write simple_allow_groups to sssd.conf
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_groups'
+            line: "simple_allow_groups = {{ updated_simple_allow_groups | join(', ') }}"
+            create: true
+            backup: true
+          ignore_errors: true
+
+    - name: Stop sssd service
+      service:
+        name: sssd
+        state: stopped
+      ignore_errors: yes
+      
+    - name: Start sssd service
+      service:
+        name: sssd
+        state: started
+      vars:
+        ansible_command_timeout: 20  # 20 seconds timeout for this service restart
+        ansible_timeout: 20          # General timeout
+      ignore_errors: yes
+
+    - name: Display whitelisting results
+      debug:
+        msg: |
+          SSSD Configuration Updated:
+          - Users Whitelist: {{ updated_simple_allow_users | join(', ') }}
+          - Groups Whitelist: {{ updated_simple_allow_groups | join(', ') }}
+          
+          SSSD service has been restarted.
+          
+          Note: Empty lists indicate no users/groups are currently whitelisted,
+          which means no users will be able to log in via SSSD authentication.

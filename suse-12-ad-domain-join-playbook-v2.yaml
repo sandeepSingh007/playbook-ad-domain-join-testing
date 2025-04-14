@@ -1,0 +1,356 @@
+---
+- name: SUSE 12 AD-Domain-join Playbook (Pre-Validation & Post-Validation)
+  #hosts: "{{ host_list }}"
+  hosts: all
+  gather_facts: true
+  vars:
+    domain_name: wikilab.asia
+    username: "{{ user }}"
+    password: "{{ pass }}"
+    ansible_python_interpreter: /usr/bin/env python
+    domain_check_results: []
+    
+  ## Pre-Task Section of Playbook ##
+  pre_tasks:
+    ## Check if running on SUSE 12 first ##
+    - name: Check if running on SUSE 12
+      fail:
+        msg: "This playbook only runs on SUSE 12 servers."
+      when: ansible_distribution != "SLES" or ansible_distribution_major_version | int != 12
+      tags: always
+      
+    - name: Gather OS version and distribution facts
+      debug:
+        var: ansible_distribution_version
+      register: os_version
+
+    - name: Extract OS major version from facts
+      set_fact:
+        ansible_distribution_major_version: "{{ ansible_distribution_version.split('.')[0] }}"
+
+    - name: Print the OS major version
+      debug:
+        var: ansible_distribution_major_version
+    
+    ## Check if any hosts need domain joining - runs before main tasks ##
+    - name: Check if user {{ username }} exists
+      shell: getent passwd "{{ username }}"
+      register: check_user
+      changed_when: false
+      ignore_errors: true
+      
+    - name: Check if LDAP port is in use
+      shell: lsof -i:636
+      register: check_ldap
+      changed_when: false
+      ignore_errors: true
+      
+    - name: Determine if server is already properly joined to domain
+      set_fact:
+        already_joined: "{{ check_user.rc == 0 and check_ldap.rc == 0 }}"
+        
+    - name: Display domain join status
+      debug:
+        msg: "{{ 'Server is already properly joined to the domain.' if already_joined else 'Server needs to be joined to the domain.' }}"
+        
+    ## Create a group for hosts that need domain joining ##
+    - name: Add host to domain_join group if needed
+      group_by:
+        key: "domain_join_{{ not already_joined }}"
+    
+    ## Check if any hosts need domain joining - runs on controller only once ## 
+    - name: Collect info about hosts needing domain join
+      set_fact:
+        host_needs_joining: "{{ not already_joined }}"
+      
+    - name: Aggregate domain join status across all hosts
+      set_fact:
+        all_hosts_joined: "{{ (all_hosts_joined | default(true)) and (hostvars[item].host_needs_joining | default(false) == false) }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+      delegate_to: localhost
+
+    ## Create a summary list of all hosts and their status ##
+    - name: Create host status summary
+      set_fact:
+        host_status_summary: "{{ host_status_summary | default([]) + [{'host': item, 'already_joined': hostvars[item].already_joined | default(false)}] }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+      delegate_to: localhost
+    
+    - name: Display domain join status summary for all hosts
+      debug:
+        msg:
+          - "Domain Join Status Summary:"
+          - "{% for host_info in host_status_summary %} - {{ host_info.host }}: {{ 'Already joined to domain' if host_info.already_joined else 'Needs to be joined to domain' }}{% endfor %}"
+          - ""
+          - "{% if all_hosts_joined | default(false) %}All hosts are already joined to domain. Remaining tasks will be skipped.{% else %}Some hosts need to be joined to domain. Proceeding with domain join for those hosts.{% endif %}"
+      run_once: true
+      delegate_to: localhost 
+      
+    - name: Set skip_remaining_tasks flag
+      set_fact:
+        skip_remaining_tasks: "{{ all_hosts_joined | default(false) }}"
+      delegate_to: localhost
+      run_once: true
+ 
+  
+  ## Playbook Main Task Section ##
+  tasks:
+    ## Skip all tasks if all hosts are already joined ##
+    - name: Skip all tasks if all hosts are joined
+      meta: end_play
+      when: skip_remaining_tasks | default(false)
+      
+    - name: Print success message if SUSE server joined domain
+      debug:
+        msg: "SUSE server joined domain"
+      when: already_joined
+      
+    - name: Print failure message if SUSE server Not joined domain
+      debug:
+        msg: "{{ ansible_facts['fqdn'] }} server needs to be joined to domain"
+      when: not already_joined
+      
+    - name: Exit the playbook if SUSE server already joined domain
+      fail:
+        msg: "This Server Already Joined Domain."
+      when: already_joined
+      tags: always
+      
+    ## Common setup for SUSE 12 - only for hosts that need joining ##
+    - name: Modify ldap Configuration
+      copy:
+        src: suse-12-ldap.conf
+        dest: /etc/openldap/ldap.conf
+        mode: "0644"
+      when: not already_joined
+        
+    - name: Create the openldap certs directory if it doesn't exist
+      file:
+        path: /etc/openldap/certs
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: not already_joined
+          
+    - name: Copy LDAP CERT
+      copy:
+        src: wikilab-ca.cer 
+        dest: /etc/openldap/certs/wikilab-ca.cer 
+        mode: '0644'
+      when: not already_joined
+    
+    ## SLES 12 domain join tasks ##
+    - name: Install packages on SLES 12
+      command: zypper --non-interactive install adcli sssd sssd-ldap sssd-ad sssd-tools
+      when: not already_joined
+
+    - name: Join domain using adcli
+      shell: echo -n "{{ password }}" | adcli join {{ domain_name }} -U {{ username }} -v --stdin-password
+      register: join_domain
+      changed_when: False
+      ignore_errors: yes
+      no_log: true
+      when: not already_joined
+      
+    - name: Print server join domain error message if any
+      debug:
+        var: join_domain.stderr_lines
+      when: not already_joined and join_domain is defined and join_domain.rc != 0
+      
+    - name: Modify SSSD Configuration
+      copy:
+        src: suse-12-sssd.conf
+        dest: /etc/sssd/sssd.conf
+        mode: "0600"
+      when: not already_joined
+          
+    - name: Disable NSCD socket
+      service:
+        name: nscd
+        enabled: no
+        state: stopped
+      when: not already_joined
+
+    - name: Take a backup of the original nsswitch.conf file
+      copy:
+        src: /etc/nsswitch.conf
+        dest: /etc/nsswitch.conf.backup__{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+        backup: yes
+      when: not already_joined
+
+    - name: Update nsswitch.conf configuration file
+      ansible.builtin.replace:
+        path: /etc/nsswitch.conf
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - { regexp: '^passwd:.*', replace: 'passwd: compat sss' }
+        - { regexp: '^group:.*', replace: 'group: compat sss' }
+        - { regexp: '^shadow:.*', replace: 'shadow: compat sss' }
+      when: not already_joined
+       
+    - name: Add pam-config for SSS
+      command: pam-config -a --sss
+      when: not already_joined
+      
+    - name: Add pam-config for creating home directories
+      command: pam-config -a --mkhomedir
+      when: not already_joined
+
+    - name: Restart sssd
+      service:
+        name: sssd
+        state: restarted
+      vars:
+        ansible_command_timeout: 20  # 20 seconds timeout for this service restart
+        ansible_timeout: 20          # General timeout
+      when: not already_joined
+
+    - name: Wait for 10 seconds after restarting sssd
+      pause:
+        seconds: 10
+      when: not already_joined
+
+    ## Post validation of Join Domain - Only for hosts that needed domain joining ##
+    - name: Verify domain join configuration
+      block:
+        - name: Verify AD user exists after domain join
+          shell: getent passwd "{{ username }}"
+          register: check_user_after
+          changed_when: false
+          ignore_errors: true
+    
+        - name: Print result ID for AD user
+          debug:
+            msg: "{% if check_user_after.rc != 0 %}Check failed: AD user '{{ username }}' does not exist on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: AD user '{{ username }}' exists on {{ ansible_facts['fqdn'] }}{% endif %}"
+      when: not already_joined
+
+    - name: Verify LDAP port is in use
+      shell: lsof -i:636
+      register: check_ldap_after
+      changed_when: false
+      ignore_errors: true
+      when: not already_joined
+        
+    - name: Print result LDAP port is in use
+      debug:
+        msg: "{% if check_ldap_after.rc != 0 %}Check failed: LDAP port 636 is not listening on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: LDAP port 636 is listening on {{ ansible_facts['fqdn'] }}{% endif %}"
+      when: not already_joined
+
+    ## SSH testing - only for hosts that needed domain joining ##
+    - name: Test SSH login before blacklisting (using execution nodes)
+      delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
+      shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
+      register: ssh_test_before
+      ignore_errors: yes
+      no_log: true
+      when: not already_joined
+    
+    ## [Before] - SSH Login Troubleshooting Section (Optional) ##
+    - name: Print full SSH test output
+      debug:
+        var: ssh_test_before
+        verbosity: 0
+      no_log: true
+      when: not already_joined 
+      
+    - name: Print detailed SSH test results
+      debug:
+        msg: |
+          SSH Test Results for {{ username }}@{{ ansible_facts['fqdn'] }}:
+          Return Code: {{ ssh_test_before.rc }}
+          Stdout: {{ ssh_test_before.stdout }}
+          Stderr: {{ ssh_test_before.stderr }}
+          Command: {{ ssh_test_before.cmd }}
+      no_log: true
+      when: not already_joined
+          
+    - name: Print SSH test result before blacklisting
+      debug:
+        msg: "{% if ssh_test_before.rc != 0 %}Check failed: Unable to login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: Login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }} was successful{% endif %}"
+      when: not already_joined
+    ## End SSH Login Troubleshooting Section ##
+
+    ## Blacklisting section - For SUSE 12 - Using SSSD configuration (same as SUSE 11) ##
+    - name: Blacklisting via SSSD - SUSE 12
+      when: not already_joined
+      block:
+        - name: Ensure access_provider is set to simple in sssd.conf
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^access_provider ='
+            line: 'access_provider = simple'
+            create: false
+            backup: true
+
+        - name: Add simple_allow_users setting to SSSD config
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_users ='
+            line: 'simple_allow_users = $'
+            create: false
+            insertafter: 'access_provider = simple'
+
+        - name: Add simple_allow_groups setting to SSSD config
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_groups ='
+            line: 'simple_allow_groups = $'
+            create: false
+            insertafter: 'simple_allow_users = \$'
+
+    - name: Restart SSSD after blacklisting
+      service:
+        name: sssd
+        state: restarted
+      when: not already_joined
+      
+    - name: Wait for 10 seconds after restarting SSSD
+      pause:
+        seconds: 10
+      when: not already_joined
+    ## End Blacklisting Section ##
+    
+    ## Test blacklisting with SSH test ##
+    - name: Test SSH login after blacklisting (using execution nodes)
+      delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
+      shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
+      register: ssh_test_after
+      ignore_errors: true
+      no_log: true
+      when: not already_joined
+      
+    ## [After] - SSH Login Troubleshooting Section (Optional) ##
+    - name: Print full SSH test output
+      debug:
+        var: ssh_test_after
+        verbosity: 0
+      when: not already_joined
+      no_log: true
+        
+    - name: Print detailed SSH test results
+      debug:
+        msg: |
+          SSH Test Results for {{ username }}@{{ ansible_facts['fqdn'] }}:
+          Return Code: {{ ssh_test_after.rc }}
+          Stdout: {{ ssh_test_after.stdout }}
+          Stderr: {{ ssh_test_after.stderr }}
+          Command: {{ ssh_test_after.cmd }}
+      no_log: true    
+      when: not already_joined
+
+    - name: Print result of SSH login test after blacklisting
+      debug:
+        msg: "{{ 'All Users are blacklisted successfully - SSH access denied as expected' if ssh_test_after.rc != 0 else 'WARNING: User still has SSH access after blacklisting' }}"
+      when: not already_joined
+    ## End SSH Login Troubleshooting Section ##
+
+    ## Final status report - only for hosts that joined domain ##
+    - name: Print final result of all checks
+      debug:
+        msg: "{% if check_user_after.rc == 0 and check_ldap_after.rc == 0 %}Successfully joined server {{ ansible_facts['fqdn'] }} to the domain{% else %}Failed to join server {{ ansible_facts['fqdn'] }} to the domain. Check manually or rerun playbook.{% endif %}"
+      when: not already_joined

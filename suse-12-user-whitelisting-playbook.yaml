@@ -104,3 +104,16 @@
         name: sssd
         state: started
       ignore_errors: yes
+      
+    - name: Display whitelisting results
+      debug:
+        msg: |
+          SSSD Configuration Updated:
+          - Users Whitelist: {{ updated_simple_allow_users | join(', ') }}
+          - Groups Whitelist: {{ updated_simple_allow_groups | join(', ') }}
+          
+          SSSD service has been restarted.
+          
+          Note: Empty lists indicate no users/groups are currently whitelisted,
+          which means no users will be able to log in via SSSD authentication.
+...

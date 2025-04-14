@@ -147,16 +147,16 @@
       command: zypper --non-interactive install adcli sssd sssd-ldap sssd-ad sssd-tools
       when: not already_joined
       
-    - name: Copy realm RPM file to temporary directory
-      copy:
-        src: realmd-0.16.3-lp151.2.4.x86_64.rpm
-        dest: /tmp/realmd-0.16.3-lp151.2.4.x86_64.rpm
-      when: not already_joined
+  #  - name: Copy realm RPM file to temporary directory
+   #   copy:
+    #    src: realmd-0.16.3-lp151.2.4.x86_64.rpm
+     #   dest: /tmp/realmd-0.16.3-lp151.2.4.x86_64.rpm
+      #when: not already_joined
 
-    - name: Install realm RPM using rpm command
-      command: zypper --non-interactive --no-gpg-checks install /tmp/realmd-0.16.3-lp151.2.4.x86_64.rpm
-      ignore_errors: yes
-      when: not already_joined
+ #   - name: Install realm RPM using rpm command
+  #    command: zypper --non-interactive --no-gpg-checks install /tmp/realmd-0.16.3-lp151.2.4.x86_64.rpm
+   #   ignore_errors: yes
+    #  when: not already_joined
 
     - name: Join domain using adcli
       shell: echo -n "{{ password }}" | adcli join {{ domain_name }} -U {{ username }} -v --stdin-password

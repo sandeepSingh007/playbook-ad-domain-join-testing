@@ -282,7 +282,7 @@
         - name: Ensure access_provider is set to simple in sssd.conf
           lineinfile:
             path: /etc/sssd/sssd.conf
-            regexp: '^access_provider ='
+            regexp: '^#access_provider ='
             line: 'access_provider = simple'
             create: false
             backup: true

@@ -1,0 +1,105 @@
+---
+- name: Whitelisting Users and Groups with simple_allow_users and simple_allow_groups in sssd.conf (SLES 15)
+  hosts: all
+  become: true
+  vars:
+    # Example: Configure the following variables during runtime
+    # add_users: ["newuser1", "newuser2"]    # List of members to add (format: username)
+    # remove_users: ["olduser1"]             # List of members to be removed (format: username)
+    # add_groups: ["newgroup1"]              # List of groups to be added (format: groupname)
+    # remove_groups: ["oldgroup1"]           # List of groups to be removed (format: groupname)
+
+  tasks:
+    - name: Extract OS major version from facts
+      set_fact:
+        ansible_distribution_major_version: "{{ ansible_distribution_version.split('.')[0] }}"
+
+    - name: Check the OS distribution supported for this play
+      fail:
+        msg: >
+          This playbook can only be run on SUSE 15.
+          You are running {{ ansible_distribution }} version {{ ansible_distribution_version }}.
+      when: >
+        (ansible_distribution != "SLES" or ansible_distribution_major_version != "15")
+
+    - name: Check if /etc/sssd/sssd.conf exists
+      stat:
+        path: /etc/sssd/sssd.conf
+      register: sssd_conf
+
+    - name: Fail if /etc/sssd/sssd.conf does not exist
+      fail:
+        msg: "The file /etc/sssd/sssd.conf does not exist. Cannot proceed."
+      when: not sssd_conf.stat.exists
+
+    - name: Ensure access_provider is set to simple in sssd.conf
+      lineinfile:
+        path: /etc/sssd/sssd.conf
+        regexp: '^access_provider ='
+        line: 'access_provider = simple'
+        create: true
+        backup: true
+
+    - name: Update simple_allow_users in sssd.conf
+      block:
+        - name: Get the existing simple_allow_users list
+          shell: "awk -F '=' '/^simple_allow_users/ {print $2}' /etc/sssd/sssd.conf"
+          register: current_users_raw
+          changed_when: false
+
+        - name: Set current simple_allow_users list
+          set_fact:
+            current_users: "{{ current_users_raw.stdout.split(',') | map('trim') | select('match', '.+') | list }}"
+          when: current_users_raw.stdout != ""
+
+        - name: Update simple_allow_users list
+          set_fact:
+            updated_simple_allow_users: "{{ (current_users + add_users) | difference(remove_users) | unique | list }}"
+
+        - name: Write simple_allow_users to sssd.conf
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_users'
+            line: "simple_allow_users = {{ updated_simple_allow_users | join(', ') }}"
+            create: true
+            backup: true
+
+    - name: Update simple_allow_groups in sssd.conf
+      block:
+        - name: Get the existing simple_allow_groups list
+          shell: "awk -F '=' '/^simple_allow_groups/ {print $2}' /etc/sssd/sssd.conf"
+          register: current_groups_raw
+          changed_when: false
+          ignore_errors: true
+
+        - name: Set current simple_allow_groups list
+          set_fact:
+            current_groups: "{{ current_groups_raw.stdout.split(',') | map('trim') | select('match', '.+') | list }}"
+          when: current_groups_raw.stdout != ""
+          ignore_errors: true
+
+        - name: Update simple_allow_groups list
+          set_fact:
+            updated_simple_allow_groups: "{{ (current_groups + add_groups) | difference(remove_groups) | unique | list }}"
+          ignore_errors: true
+
+        - name: Write simple_allow_groups to sssd.conf
+          lineinfile:
+            path: /etc/sssd/sssd.conf
+            regexp: '^simple_allow_groups'
+            line: "simple_allow_groups = {{ updated_simple_allow_groups | join(', ') }}"
+            create: true
+            backup: true
+          ignore_errors: true
+
+    - name: Stop sssd service
+      service:
+        name: sssd
+        state: stopped
+      ignore_errors: yes
+      
+    - name: Start sssd service
+      service:
+        name: sssd
+        state: started
+      ignore_errors: yes

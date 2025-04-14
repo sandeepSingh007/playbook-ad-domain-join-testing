@@ -212,7 +212,7 @@
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_before
       ignore_errors: yes
-      no_log: true
+      #no_log: true
       when: not already_joined
     
     ## [Before] - SSH Login Troubleshooting Section (Optional) ##
@@ -220,7 +220,7 @@
       debug:
         var: ssh_test_before
         verbosity: 0
-      no_log: true
+      #no_log: true
       when: not already_joined 
       
     - name: Print detailed SSH test results
@@ -231,7 +231,7 @@
           Stdout: {{ ssh_test_before.stdout }}
           Stderr: {{ ssh_test_before.stderr }}
           Command: {{ ssh_test_before.cmd }}
-      no_log: true
+      #no_log: true
       when: not already_joined
           
     - name: Print SSH test result before blacklisting
@@ -270,7 +270,7 @@
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_after
       ignore_errors: true
-      no_log: true
+      #no_log: true
       when: not already_joined
       
     ## [After] - SSH Login Troubleshooting Section (Optional) ##
@@ -279,7 +279,7 @@
         var: ssh_test_after
         verbosity: 0
       when: not already_joined
-      no_log: true
+      #no_log: true
         
     - name: Print detailed SSH test results
       debug:
@@ -289,7 +289,7 @@
           Stdout: {{ ssh_test_after.stdout }}
           Stderr: {{ ssh_test_after.stderr }}
           Command: {{ ssh_test_after.cmd }}
-      no_log: true    
+      #no_log: true    
       when: not already_joined
 
     - name: Print result of SSH login test after blacklisting

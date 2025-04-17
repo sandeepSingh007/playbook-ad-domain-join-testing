@@ -166,7 +166,7 @@
  
     - name: Modify SSSD Configuration in RHEL6
       copy:
-        src: sssd.conf_rhel6_v2
+        src: rhel-6-sssd.conf
         dest: /etc/sssd/sssd.conf
         mode: "0600"
       when: not already_joined

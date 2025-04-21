@@ -1,7 +1,7 @@
 ---
 - name: SUSE 11 Ad-Domain-join Playbook (Pre-Validation & Post-Validation)
   #hosts: "{{ host_list }}"
-  hosts:  all
+  hosts: all
   gather_facts: true
   vars:
     domain_name: wikilab.asia
@@ -93,7 +93,6 @@
         skip_remaining_tasks: "{{ all_hosts_joined | default(false) }}"
       delegate_to: localhost
       run_once: true
- 
   
   ## Playbook Main Task Section ##
   tasks:
@@ -119,20 +118,8 @@
       tags: always
       
     ## Install packages and Join Domain - only if not already joined ##
-    - name: Modify ldap Configuration
-      copy:
-        src: suse11_ldap.conf
-        dest: /etc/openldap/ldap.conf
-        mode: "0644"
-      when: not already_joined
-
-    - name: Modify Samba Configuration
-      copy:
-        src: suse11_smb.conf
-        dest: /etc/samba/smb.conf
-        mode: "0644"
-      when: not already_joined
-        
+    
+    ## First create the necessary directories and prepare for installation ##
     - name: Create the openldap certs directory if it doesn't exist
       file:
         path: /etc/openldap/certs
@@ -151,79 +138,137 @@
 
     - name: Ensure temporary directory exists
       file:
-        path: /tmp/suse11_adpackages
+        path: /tmp/suse-11-adpackages
         state: directory
         mode: '0755'
       when: not already_joined
 
-    # Install packages on SLES 11
-    - name: Transfer suse11_adpackages.tar.gz from local /files directory
+    ## Install packages phase ##
+    - name: Transfer suse-11-adpackages.tar from local /files directory
       copy:
-        src: suse11_adpackages.tar.gz
-        dest: /tmp/suse11_adpackages.tar.gz
+        src: suse-11-adpackages.tar
+        dest: /tmp/suse-11-adpackages.tar
         mode: '0644'
       when: not already_joined
 
-    - name: Extract suse11_adpackages.tar.gz
+    - name: Extract suse11_adpackages.tar
       unarchive:
-        src: /tmp/suse11_adpackages.tar.gz
-        dest: /tmp/suse11_adpackages
+        src: /tmp/suse-11-adpackages.tar
+        dest: /tmp/suse-11-adpackages
         remote_src: true
       when: not already_joined
 
-    - name: Install RPM packages using zypper
-      command: zypper --non-interactive install {{ item }}
+    # Install packages using zypper module 
+    - name: Install RPM packages using zypper module
+      zypper:
+        name: "{{ item }}"
+        state: present
+        disable_gpg_check: yes
       with_items:
-        - /tmp/suse11_adpackages/sssd-tools-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse11_adpackages/sssd-32bit-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse11_adpackages/sssd-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse11_adpackages/samba-winbind-32bit-3.6.3-0.58.1.x86_64.rpm
-        - /tmp/suse11_adpackages/samba-winbind-3.6.3-0.58.1.x86_64.rpm
-        - /tmp/suse11_adpackages/pam-modules-11-1.25.26.x86_64.rpm
-        - /tmp/suse11_adpackages/openldap2-client-2.4.26-0.30.1.x86_64.rpm
-        - /tmp/suse11_adpackages/libiniparser0-32bit-2.17-87.17.x86_64.rpm
-        - /tmp/suse11_adpackages/libiniparser0-2.17-87.17.x86_64.rpm
-        - /tmp/suse11_adpackages/krb5-client-1.6.3-133.49.66.1.x86_64.rpm
-      ignore_errors: true
+        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-32bit-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-tools-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/samba-winbind-32bit-3.6.3-0.58.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/samba-winbind-3.6.3-0.58.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/pam-modules-11-1.25.26.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/openldap2-client-2.4.26-0.30.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/libiniparser0-32bit-2.17-87.17.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/libiniparser0-2.17-87.17.x86_64.rpm
+        - /tmp/suse-11-adpackages/suse-11-adpackages/krb5-client-1.6.3-133.49.66.1.x86_64.rpm
       when: not already_joined
+      register: package_install
 
     - name: Clean up temporary files
       file:
-        path: "/tmp/suse11_adpackages.tar.gz"
+        path: "/tmp/suse-11-adpackages.tar"
         state: absent
-      when: not already_joined
+      when: not already_joined and package_install is succeeded
 
     - name: Clean up temporary directory
       file:
-        path: /tmp/suse11_adpackages
+        path: /tmp/suse-11-adpackages
         state: absent
-      when: not already_joined
+      when: not already_joined and package_install is succeeded
+    
+    ## After packages are installed, take backups and modify configuration files ##
+    - name: Take backup of existing ldap.conf
+      copy:
+        src: /etc/openldap/ldap.conf
+        dest: /etc/openldap/ldap.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and package_install is succeeded
+      ignore_errors: true
+      
+    - name: Modify ldap Configuration
+      copy:
+        src: suse-11-ldap.conf
+        dest: /etc/openldap/ldap.conf
+        mode: "0644"
+        backup: yes
+      when: not already_joined and package_install is succeeded
 
+    - name: Take backup of existing smb.conf
+      copy:
+        src: /etc/samba/smb.conf
+        dest: /etc/samba/smb.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and package_install is succeeded
+      ignore_errors: true
+
+    - name: Modify Samba Configuration
+      copy:
+        src: suse-11-smb.conf
+        dest: /etc/samba/smb.conf
+        mode: "0644"
+        backup: yes
+      when: not already_joined and package_install is succeeded
+
+    - name: Take backup of existing sssd.conf if it exists
+      copy:
+        src: /etc/sssd/sssd.conf
+        dest: /etc/sssd/sssd.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and package_install is succeeded
+      ignore_errors: true
+
+    ## Join domain phase ##
     - name: Join domain using net ads
-      #shell: echo -n "{{ password }}" | net ads join -U {{ username }}@{{ domain_name }} --verbose
       shell: net ads join -U {{ username }}@{{ domain_name }}%{{ password }} --verbose
       register: join_domain
       changed_when: False
-      ignore_errors: yes
+      when: not already_joined and package_install is succeeded
       no_log: true
-      when: not already_joined
   
     - name: Print server join domain error message if any
       debug:
         var: join_domain.stderr_lines
       when: not already_joined and join_domain is defined and join_domain.rc != 0
       
+    - name: Fail playbook if domain join failed
+      fail:
+        msg: "Failed to join domain. Please check the error messages above."
+      when: not already_joined and join_domain is defined and join_domain.rc != 0
+      
     - name: Wait for 10 seconds after domain join
       pause:
         seconds: 10
-      when: not already_joined and join_domain is defined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
+    ## Configure post-domain join settings ##
     - name: Modify SSSD Configuration
       copy:
-        src: suse11_sssd.conf
+        src: suse-11-sssd.conf
         dest: /etc/sssd/sssd.conf
         mode: "0600"
-      when: not already_joined
+        backup: yes
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
+
+    - name: Take backup of existing nsswitch.conf
+      copy:
+        src: /etc/nsswitch.conf
+        dest: /etc/nsswitch.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Update nsswitch.conf configuration file
       replace:
@@ -234,45 +279,69 @@
       with_items:
         - { regexp: '^passwd:.*', replace: 'passwd: compat sss' }
         - { regexp: '^group:.*', replace: 'group: compat sss' }
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Enable SSSD Authentication in PAM
       command: pam-config -a --sss
-      ignore_errors: true
-      when: not already_joined
+      register: pam_config_sss
+      failed_when: pam_config_sss.rc != 0
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Enable SSSD Home Directory Management in PAM
       command: pam-config -a --mkhomedir
-      ignore_errors: true
-      when: not already_joined
+      register: pam_config_mkhomedir
+      failed_when: pam_config_mkhomedir.rc != 0
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
-    - name: Restart Samba, Winbind, and SSSD services
+    ## Restart services phase ##
+    - name: Restart Samba service
       service:
-        name: "{{ item }}"
+        name: smb
         state: restarted
         enabled: true
-      with_items:
-        - smb
-        - winbind
-        - sssd
-      ignore_errors: true
+      register: smb_restart
+      failed_when: smb_restart.failed
       vars:
         ansible_command_timeout: 20  # 20 seconds timeout for this service restart
         ansible_timeout: 20          # General timeout
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
+
+    - name: Restart Winbind service
+      service:
+        name: winbind
+        state: restarted
+        enabled: true
+      register: winbind_restart
+      failed_when: winbind_restart.failed
+      vars:
+        ansible_command_timeout: 20  # 20 seconds timeout for this service restart
+        ansible_timeout: 20          # General timeout
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
+
+    - name: Restart SSSD service
+      service:
+        name: sssd
+        state: restarted
+        enabled: true
+      register: sssd_restart
+      failed_when: sssd_restart.failed
+      vars:
+        ansible_command_timeout: 20  # 20 seconds timeout for this service restart
+        ansible_timeout: 20          # General timeout
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Stop nscd service
       service:
         name: nscd
         state: stopped
         enabled: false
-      ignore_errors: true
-      when: not already_joined
+      register: nscd_stop
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
     - name: Wait for 10 seconds after restarting services
       pause:
         seconds: 10
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     ## Post validation of Join Domain - Only for hosts that needed domain joining ##
     - name: Verify domain join configuration
@@ -286,7 +355,7 @@
         - name: Print result ID for AD user
           debug:
             msg: "{% if check_user_after.rc != 0 %}Check failed: AD user '{{ username }}' does not exist on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: AD user '{{ username }}' exists on {{ ansible_facts['fqdn'] }}{% endif %}"
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     ## SSH testing - only for hosts that needed domain joining ##
     - name: Test SSH login before blacklisting (using execution nodes)
@@ -295,19 +364,19 @@
       register: ssh_test_before
       ignore_errors: true
       no_log: true
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Verify LDAP port is in use
       shell: lsof -i:636
       register: check_ldap_after
       changed_when: false
       ignore_errors: true
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
         
     - name: Print result LDAP port is in use
       debug:
         msg: "{% if check_ldap_after.rc != 0 %}Check failed: LDAP port 636 is not listening on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: LDAP port 636 is listening on {{ ansible_facts['fqdn'] }}{% endif %}"
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
     
     ## [Before] - SSH Login Troubleshooting Section (Optional) ##
     - name: Print full SSH test output
@@ -315,7 +384,7 @@
         var: ssh_test_before
         verbosity: 0
       no_log: true
-      when: not already_joined 
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
     - name: Print Summary of SSH test results
       debug:
@@ -326,12 +395,12 @@
           Stderr: {{ ssh_test_before.stderr }}
           Command: {{ ssh_test_before.cmd }}
       no_log: true
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
           
     - name: Print SSH test result before blacklisting
       debug:
         msg: "{% if ssh_test_before.rc != 0 %}Check failed: Unable to login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: Login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }} was successful{% endif %}"
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
     ## End SSH Login Troubleshooting Section ##
     
     ## Blacklisting section - Using SSSD configuration for SUSE 11 ##
@@ -341,8 +410,8 @@
         regexp: '^#access_provider ='
         line: 'access_provider = simple'
         create: false
-        backup: true
-      when: not already_joined
+        #backup: true
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Add simple_allow_users setting to SSSD config
       lineinfile:
@@ -351,7 +420,7 @@
         line: 'simple_allow_users = $'
         create: false
         insertafter: 'access_provider = simple'
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Add simple_allow_groups setting to SSSD config
       lineinfile:
@@ -360,18 +429,20 @@
         line: 'simple_allow_groups = $'
         create: false
         insertafter: 'simple_allow_users = \$'
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
     - name: Restart SSSD after blacklisting
       service:
         name: sssd
         state: restarted
-      when: not already_joined
+      register: sssd_restart_blacklist
+      failed_when: sssd_restart_blacklist.failed
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
     - name: Wait for 10 seconds after restarting SSSD
       pause:
         seconds: 10
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
     ## End Blacklisting Section ##
     
     ## Test blacklisting with SSH test ##
@@ -380,15 +451,15 @@
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_after
       ignore_errors: true
-      #no_log: true
-      when: not already_joined
+      no_log: true
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       
     ## [After] - SSH Login Troubleshooting Section (Optional) ##
     - name: Print full SSH test output
       debug:
         var: ssh_test_after
         verbosity: 0
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
       no_log: true
         
     - name: Print detailed SSH test results
@@ -400,12 +471,12 @@
           Stderr: {{ ssh_test_after.stderr }}
           Command: {{ ssh_test_after.cmd }}
       no_log: true    
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
 
     - name: Print result of SSH login test after blacklisting
       debug:
         msg: "{{ 'All Users are blacklisted successfully - SSH access denied as expected' if ssh_test_after.rc != 0 else 'WARNING: User still has SSH access after blacklisting' }}"
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
     ## End Blacklisting Section & SSH Login Troubleshooting Section ##
 
     ## LDAP Port Verification ##
@@ -417,10 +488,11 @@
       delay: 5  # 5 seconds between retries
       changed_when: false
       ignore_errors: true
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
           
     ## Final status report - only for hosts that joined domain ##
     - name: Print final result of all checks
       debug:
         msg: "{% if check_user_after.rc == 0 and check_ldap_after.rc == 0 %}Successfully joined server {{ ansible_facts['fqdn'] }} to the domain{% else %}Failed to join server {{ ansible_facts['fqdn'] }} to the domain. Check manually or rerun playbook.{% endif %}"
-      when: not already_joined
+      when: not already_joined and join_domain is defined and join_domain.rc == 0
+...

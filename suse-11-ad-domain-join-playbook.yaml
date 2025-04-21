@@ -160,7 +160,7 @@
 
     # Install packages using zypper module 
     - name: Install RPM packages using zypper module
-      command: "zypper --non-interactive install --no-gpg-checks {{ item }}"
+      command: "zypper --non-interactive install {{ item }}"
       with_items:
         - /tmp/suse-11-adpackages/sssd-1.9.4-0.16.1.x86_64.rpm
         - /tmp/suse-11-adpackages/sssd-32bit-1.9.4-0.16.1.x86_64.rpm

@@ -117,24 +117,31 @@
       when: already_joined
       tags: always
       
-    ## Install packages and Join Domain - only if not already joined ##
+    ## Install packages for domain join & fail if installation fails ##
     - name: Installing packages in RHEL 6 server
-      package:
-        name: "{{ item }}"
-        state: latest
-      with_items:
-        - adcli
-        - sssd
-        - authconfig
-        - oddjob
-        - oddjob-mkhomedir
-        - lsof
+      yum:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - adcli
+          - sssd
+          - authconfig
+          - oddjob
+          - oddjob-mkhomedir
+          - lsof
       when: not already_joined
+      register: package_install_result
+        
+    - name: Verify packages were installed successfully
+      fail:
+        msg: "Failed to install required packages. Please check your repositories and try again."
+      when: not already_joined and package_install_result is defined and package_install_result.failed
         
     - name: RHEL 6 server join domain 
       shell: echo -n "{{ password }}" | adcli join {{ domain_name }} -U {{ username }} -v --stdin-password
       register: join_domain
-      ignore_errors: true
       no_log: true
       when: not already_joined
           
@@ -153,7 +160,7 @@
         path: /etc/nsswitch.conf
         regexp: "{{ item.regexp }}"
         replace: "{{ item.replace }}"
-        backup: true
+        backup: true  # Backup is already enabled
       with_items:
         - { regexp: '^passwd:.*', replace: 'passwd: files sss' }
         - { regexp: '^group:.*', replace: 'group: files sss' }
@@ -161,15 +168,38 @@
 
     - name: Enable SSSD Authentication in PAM
       command: authconfig --enablesssdauth --enablesssd --enablemkhomedir --updateall
-      ignore_errors: true
+      ignore_errors: true  # Keep this as PAM configuration can be complex
       when: not already_joined
  
+    - name: Backup original SSSD Configuration if exists
+      copy:
+        src: /etc/sssd/sssd.conf
+        dest: /etc/sssd/sssd.conf.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and ansible_check_mode == false
+      ignore_errors: true
+
     - name: Modify SSSD Configuration in RHEL6
       copy:
         src: rhel-6-sssd.conf
         dest: /etc/sssd/sssd.conf
         mode: "0600"
       when: not already_joined
+
+    - name: Ensure openldap certs directory exists
+      file:
+        path: /etc/openldap/certs
+        state: directory
+        mode: '0755'
+      when: not already_joined
+
+    - name: Backup original LDAP Configuration if exists
+      copy:
+        src: /etc/openldap/ldap.conf
+        dest: /etc/openldap/ldap.conf.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined and ansible_check_mode == false
+      ignore_errors: true  # This might not exist on first join
 
     - name: Modify ldap Configuration in RHEL6
       copy:
@@ -222,7 +252,7 @@
       delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_before
-      ignore_errors: true
+      #ignore_errors: true  # Keep this as we're testing SSH access
       no_log: true
       when: not already_joined
 
@@ -263,6 +293,14 @@
       when: not already_joined
     ## End SSH Login Troubleshooting Section ##
     
+    ## Backup SSSD configuration before blacklisting ##
+    - name: Backup SSSD Configuration before blacklisting
+      copy:
+        src: /etc/sssd/sssd.conf
+        dest: /etc/sssd/sssd.conf.before_blacklist_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        remote_src: yes
+      when: not already_joined
+    
     ## Blacklisting section - Using SSSD configuration for RHEL 6 ##
     - name: Ensure access_provider is set to simple in sssd.conf
       lineinfile:
@@ -270,7 +308,7 @@
         regexp: '^access_provider ='
         line: 'access_provider = simple'
         create: false
-        backup: true
+        #backup: true
       when: not already_joined
 
     - name: Add simple_allow_users setting to SSSD config
@@ -308,7 +346,7 @@
       delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_after
-      ignore_errors: true
+      ignore_errors: true  # Keep this as we're testing if access is denied
       no_log: true
       when: not already_joined
       

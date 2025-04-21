@@ -162,16 +162,16 @@
     - name: Install RPM packages using zypper module
       command: "zypper --non-interactive install --no-gpg-checks {{ item }}"
       with_items:
-        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-32bit-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/sssd-tools-1.9.4-0.16.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/samba-winbind-32bit-3.6.3-0.58.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/samba-winbind-3.6.3-0.58.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/pam-modules-11-1.25.26.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/openldap2-client-2.4.26-0.30.1.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/libiniparser0-32bit-2.17-87.17.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/libiniparser0-2.17-87.17.x86_64.rpm
-        - /tmp/suse-11-adpackages/suse-11-adpackages/krb5-client-1.6.3-133.49.66.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/sssd-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/sssd-32bit-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/sssd-tools-1.9.4-0.16.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/samba-winbind-32bit-3.6.3-0.58.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/samba-winbind-3.6.3-0.58.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/pam-modules-11-1.25.26.x86_64.rpm
+        - /tmp/suse-11-adpackages/openldap2-client-2.4.26-0.30.1.x86_64.rpm
+        - /tmp/suse-11-adpackages/libiniparser0-32bit-2.17-87.17.x86_64.rpm
+        - /tmp/suse-11-adpackages/libiniparser0-2.17-87.17.x86_64.rpm
+        - /tmp/suse-11-adpackages/krb5-client-1.6.3-133.49.66.1.x86_64.rpm
       when: not already_joined
       register: package_install
       failed_when: "package_install.rc != 0"

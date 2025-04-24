@@ -169,12 +169,12 @@
       with_items:
         - sssd
         - sssd-32
-        - sssd-tools-1.9.4-0.16.1.x86_64.rpm
-        - samba-winbind-32bit-3.6.3-0.58.1.x86_64.rpm
-        - samba-winbind-3.6.3-0.58.1.x86_64.rpm
-        - pam-modules-11-1.25.26.x86_64.rpm
-        - openldap2-client-2.4.26-0.30.1.x86_64.rpm
-        - krb5-client-1.6.3-133.49.66.1.x86_64.rpm
+        - sssd-tools
+        - samba-winbind-32bit
+        - samba-winbind
+        - pam-modules
+        - openldap2-client
+        - krb5-client
         - /tmp/suse-11-libiniparser/libiniparser0-32bit-2.17-87.17.x86_64.rpm
         - /tmp/suse-11-libiniparser/libiniparser0-2.17-87.17.x86_64.rpm
       when: not already_joined

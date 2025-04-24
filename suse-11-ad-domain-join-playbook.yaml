@@ -2,7 +2,7 @@
 - name: SUSE 11 Ad-Domain-join Playbook (Pre-Validation & Post-Validation)
   #hosts: "{{ host_list }}"
   hosts: all
-  gather_facts: true
+ gather_facts: true
   vars:
     domain_name: wikilab.asia
     username: "{{ user }}"
@@ -192,7 +192,8 @@
     - name: Take backup of existing ldap.conf
       copy:
         src: /etc/openldap/ldap.conf
-        dest: /etc/openldap/ldap.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        #dest: /etc/openldap/ldap.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        dest: /etc/openldap/ldap.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined and package_install is succeeded
       ignore_errors: true
@@ -208,8 +209,10 @@
     - name: Take backup of existing smb.conf
       copy:
         src: /etc/samba/smb.conf
-        dest: /etc/samba/smb.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        #dest: /etc/samba/smb.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        dest: /etc/samba/smb.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
+        backup: yes
       when: not already_joined and package_install is succeeded
       ignore_errors: true
 
@@ -224,7 +227,8 @@
     - name: Take backup of existing sssd.conf if it exists
       copy:
         src: /etc/sssd/sssd.conf
-        dest: /etc/sssd/sssd.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        #dest: /etc/sssd/sssd.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        dest: /etc/sssd/sssd.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined and package_install is succeeded
       ignore_errors: true
@@ -264,7 +268,8 @@
     - name: Take backup of existing nsswitch.conf
       copy:
         src: /etc/nsswitch.conf
-        dest: /etc/nsswitch.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        #dest: /etc/nsswitch.conf.backup.{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
+        dest: /etc/nsswitch.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined and join_domain is defined and join_domain.rc == 0
 

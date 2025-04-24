@@ -92,7 +92,6 @@
       delegate_to: localhost
       run_once: true
  
-  
   ## Playbook Main Task Section ##
   tasks:
     ## Skip all tasks if all hosts are already joined ##
@@ -173,7 +172,6 @@
     - name: Backup original SSSD Configuration if exists
       copy:
         src: /etc/sssd/sssd.conf
-        #dest: /etc/sssd/sssd.conf.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
         dest: /etc/sssd/sssd.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined and ansible_check_mode == false
@@ -196,7 +194,6 @@
     - name: Backup original LDAP Configuration if exists
       copy:
         src: /etc/openldap/ldap.conf
-        #dest: /etc/openldap/ldap.conf.bak_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
         dest: /etc/openldap/ldap.conf.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined and ansible_check_mode == false
@@ -253,7 +250,6 @@
       delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_before
-      #ignore_errors: true  # Keep this as we're testing SSH access
       no_log: true
       when: not already_joined
 
@@ -269,7 +265,7 @@
         msg: "{% if check_ldap_after.rc != 0 %}Check failed: LDAP port 636 is not listening on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: LDAP port 636 is listening on {{ ansible_facts['fqdn'] }}{% endif %}"
       when: not already_joined
     
-    ## [Before] - SSH Login Troubelshooting Section (Optional) ##
+    ## [Before] - SSH Login Troubleshooting Section (Optional) ##
     - name: Print full SSH test output
       debug:
         var: ssh_test_before
@@ -298,7 +294,6 @@
     - name: Backup SSSD Configuration before blacklisting
       copy:
         src: /etc/sssd/sssd.conf
-        #dest: /etc/sssd/sssd.conf.before_blacklist_{{ ansible_date_time.date }}_{{ ansible_date_time.time }}
         dest: /etc/sssd/sssd.conf.before-blacklist.backup.{{ '%Y%m%d_%H%M%S' | strftime }}
         remote_src: yes
       when: not already_joined
@@ -310,7 +305,6 @@
         regexp: '^access_provider ='
         line: 'access_provider = simple'
         create: false
-        #backup: true
       when: not already_joined
 
     - name: Add simple_allow_users setting to SSSD config
@@ -331,13 +325,12 @@
         insertafter: 'simple_allow_users = \$'
       when: not already_joined
 
-    # Code for create home directory for users in sysetm #
+    # Code for create home directory for users in system #
     - name: Ensure PAM mkhomedir module is enabled in system-auth
       lineinfile:
         path: /etc/pam.d/system-auth
         regexp: '^session\s+optional\s+pam_mkhomedir.so'
         line: 'session     optional      pam_mkhomedir.so skel=/etc/skel/ umask=0077'
-        #insertafter: '^session\s+required\s+pam_unix.so'
         state: present
       when: not already_joined
 
@@ -346,10 +339,8 @@
         path: /etc/pam.d/sshd
         regexp: '^session\s+optional\s+pam_mkhomedir.so'
         line: 'session     optional      pam_mkhomedir.so skel=/etc/skel/ umask=0077'
-        #insertafter: '^session\s+required\s+pam_unix.so'
         state: present
       when: not already_joined
-      #######  This Code can be remove if not required ########
       
     - name: Restart SSSD after blacklisting
       service:
@@ -372,7 +363,7 @@
       no_log: true
       when: not already_joined
       
-    ## [After] - SSH Login Troubelshooting Section (Optional) ##
+    ## [After] - SSH Login Troubleshooting Section (Optional) ##
     - name: Print full SSH test output
       debug:
         var: ssh_test_after

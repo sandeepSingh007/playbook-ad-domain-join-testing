@@ -168,7 +168,7 @@
       command: "zypper --non-interactive install {{ item }}"
       with_items:
         - sssd
-        - sssd-32
+        - sssd-32bit
         - sssd-tools
         - samba-winbind-32bit
         - samba-winbind

@@ -2,7 +2,7 @@
 - name: SUSE 11 Ad-Domain-join Playbook (Pre-Validation & Post-Validation)
   #hosts: "{{ host_list }}"
   hosts: all
- gather_facts: true
+  gather_facts: true
   vars:
     domain_name: wikilab.asia
     username: "{{ user }}"

@@ -1,6 +1,7 @@
 ---
 - name: Detect and Execute RHEL 6 OS-specific tasks
-  hosts: "{{ host_list }}"
+  #hosts: "{{ host_list }}"
+  hosts: all
   gather_facts: yes
   vars:
     domain_name: "wikilab.asia"

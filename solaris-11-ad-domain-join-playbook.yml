@@ -1,0 +1,172 @@
+- name: Configure Samba and Winbind on Solaris
+  hosts: "{{ host_list }}"
+  gather_facts: yes
+  vars:
+    username: "{{ username }}"
+    password: "{{ pass }}"
+    ansible_python_interpreter: /usr/bin/env python
+    
+  tasks:
+
+    - name: Gather OS version and distribution facts
+      debug:
+        var: ansible_distribution_version
+      register: os_version
+
+    - name: Extract OS major version from facts
+      set_fact:
+        ansible_distribution_major_version: "{{ ansible_distribution_version.split('.')[0] }}"
+
+    - name: Print the OS major version
+      debug:
+        var: ansible_distribution_major_version
+
+    - name: check samba packaged installed
+      shell: "pkg info samba | grep State | awk '{print $2}'"
+      register: samba_installed
+      ignore_errors: yes
+      
+    - name: install samba
+      command: pkg install samba
+      when:  'samba_installed.stdout not in "Installed"'
+      
+    - name: Check if the server is joined to the domain
+      command: wbinfo -t
+      register: domain_join_status
+      ignore_errors: yes
+
+    - name: Determine if the server is already joined to the domain
+      set_fact:
+        already_joined: "{{ domain_join_status.rc == 0 }}"
+
+    - name: Print message if server is already joined
+      debug:
+        msg: "Server is already joined to the domain."
+      when: already_joined
+
+    - name: Stop playbook execution if server is already joined
+      meta: end_play
+      when: already_joined
+
+    - name: Copy krb5.conf to the server if it doesn't exist
+      copy:
+        src: krb5.conf_solaris
+        dest: /etc/krb5.conf
+        backup: yes
+
+    - name: Copy smb.conf to the server if it doesn't exist
+      copy:
+        src: smb.conf_solaris
+        dest: /etc/samba/smb.conf
+        backup: yes
+        
+    - name: Copy default property, password property, group property, host property, host property
+      copy:
+        src: setprop.sh
+        dest: /tmp/
+        mode: '0755'
+        
+    - name: Set default property, password property, group property, host property, host property
+      command: sh /tmp/setprop.sh
+
+    - name: Refresh SMF service for name-service/switch
+      command: svcadm refresh svc:/system/name-service/switch
+
+    - name: Enable Samba service
+      service:
+        name: samba
+        state: started
+        enabled: yes
+
+    - name: Join the server to the domain
+     # shell: echo '{{ password }}' | net ads join -U mvenkata
+      shell: echo '{{ password }}' | net ads join -U {{ username }}
+      register: join_output
+   #   failed_when: "join_output.rc != 0"
+      ignore_errors: yes
+      no_log: true
+      
+    - name: Print error message if domain join fails
+      debug:
+        msg: "{{ join_output.stdout }}"
+
+    - name: Enable Winbind service
+      service:
+        name: winbind
+        state: started
+        enabled: yes
+
+    - name: Verify Samba and Winbind services are online
+      command: svcs samba winbind
+      register: svcs_output
+
+    - name: Print service status
+      debug:
+        msg: "{{ svcs_output.stdout }}"
+
+    - name: Copy pam login to the server
+      copy:
+        src: pam_login
+        dest: /etc/pam.d/login
+        backup: yes
+
+    - name: Copy pam rlogin to the server
+      copy:
+        src: pam_rlogin
+        dest: /etc/pam.d/rlogin
+        backup: yes
+
+    - name: Copy pam other to the server
+      copy:
+        src: pam_other
+        dest: /etc/pam.d/other
+        backup: yes
+    
+    - name: Restart Samba and Winbind services
+      service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - samba
+        - winbind
+        
+    - name: Verify winbindd can communicate and return ADS usernames and groups
+      block:
+        - name: Check winbindd ping
+          command: wbinfo -p
+          register: wbinfo_p
+          failed_when: "wbinfo_p.rc != 0"
+          ignore_errors: yes
+
+        - name: Print winbindd ping status
+          debug:
+            msg: "{{ wbinfo_p.stdout }}"
+
+        - name: List ADS usernames
+          command: wbinfo -u
+          register: wbinfo_u
+
+        - name: Print ADS usernames
+          debug:
+            msg: "{{ wbinfo_u.stdout }}"
+
+        - name: List ADS groups
+          command: wbinfo -g
+          register: wbinfo_g
+
+        - name: Print ADS groups
+          debug:
+            msg: "{{ wbinfo_g.stdout }}"
+
+        - name: Create the home directory if it doesn't exist
+          file:
+            path: /export/home/ISDDC
+            state: directory
+            owner: root
+            group: "ISDDCwdomain users"
+            mode: '0775'
+            
+    - name: Print success message if domain join is successful
+      debug:
+        msg: "Server successfully joined the domain and winbindd is functioning properly."
+      when: wbinfo_p.rc == 0 and wbinfo_u.rc == 0 and wbinfo_g.rc == 0

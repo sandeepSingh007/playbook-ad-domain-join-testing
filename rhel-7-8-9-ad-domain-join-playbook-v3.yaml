@@ -185,7 +185,7 @@
         
     - name: Copy LDAP CERT
       copy:
-        src: Wikilab-ca.cer
+        src: wikilab-ca.cer
         dest: /etc/openldap/certs
         mode: "0655"
         backup: true

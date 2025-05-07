@@ -145,13 +145,13 @@
     - name: Join domain (RHEL 7, 8, 9)
       shell: echo "{{password}}" | realm join {{domain_name}} -U {{username}} --verbose
       register: join_domain
-      ignore_errors: yes
+      #ignore_errors: true 
       no_log: true
       when: not already_joined
       
-    - name: Wait for 10 seconds after domain join
+    - name: Wait for 5 seconds after domain join
       pause:
-        seconds: 10 
+        seconds: 5 
       when: not already_joined and join_domain is defined
           
     - name: Print server join domain error message if any
@@ -170,7 +170,7 @@
     - name: Add cert path to the ldap.conf in RHEL7, 8 and 9
       lineinfile:
         path: /etc/openldap/ldap.conf
-        insertafter: BOF
+        insertafter: EOF
         line: 'TLS_CACERT      /etc/openldap/certs/wikilab-ca.cer'
         state: present
         backup: true
@@ -188,6 +188,7 @@
         src: Wikilab-ca.cer
         dest: /etc/openldap/certs
         mode: "0655"
+        backup: true
       when: not already_joined
 
     - name: Restart sssd
@@ -233,10 +234,11 @@
       delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
       register: ssh_test_before
-      ignore_errors: yes
+      #ignore_errors: true # Keep this as we're testing SSH access  
       no_log: true
       when: not already_joined
 
+    ## [Before] - SSH Login Troubelshooting Section (Optional) ##
     - name: Print full SSH test output
       debug:
         var: ssh_test_before
@@ -252,14 +254,16 @@
           Stdout: {{ ssh_test_before.stdout }}
           Stderr: {{ ssh_test_before.stderr }}
           Command: {{ ssh_test_before.cmd }}
+      no_log: true    
       when: not already_joined
           
     - name: Print SSH test result before blacklisting
       debug:
         msg: "{% if ssh_test_before.rc != 0 %}Check failed: Unable to login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }}{% else %}Check Pass: Login as AD user '{{ username }}' on {{ ansible_facts['fqdn'] }} was successful{% endif %}"
       when: not already_joined
+    ## End SSH Login Troubleshooting Section ##  
 
-    # Blacklisting section - only for hosts that needed domain joining
+    ## Blacklisting section - only for hosts that needed domain joining ##
     - name: Blacklisting all Users
       shell: realm permit -x "{{ username }}"
       when: not already_joined
@@ -277,8 +281,9 @@
       pause:
         seconds: 10
       when: not already_joined
+    ## End Blacklisting Section ##
 
-    # Test blacklisting with SSH test
+    # Test blacklisting with SSH test ##
     - name: Test SSH login after blacklisting (using execution nodes)
       delegate_to: "{{ hostvars['localhost']['ansible_controller_host'] | default('localhost') }}"
       shell: sshpass -p "{{ password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 {{ username }}@{{ ansible_host }} echo "SSH login successful"
@@ -287,6 +292,7 @@
       no_log: true
       when: not already_joined
 
+    ## [After] - SSH Login Troubelshooting Section (Optional) ##
     - name: Print full SSH test output
       debug:
         var: ssh_test_after
@@ -302,17 +308,42 @@
           Stdout: {{ ssh_test_after.stdout }}
           Stderr: {{ ssh_test_after.stderr }}
           Command: {{ ssh_test_after.cmd }}
+      no_log: true    
       when: not already_joined
-      #no_log: true
 
     - name: Print result of SSH login test after blacklisting
       debug:
         msg: "{{ 'All Users are blacklisted successfully - SSH access denied as expected' if ssh_test_after.rc != 0 else 'WARNING: User still has SSH access after blacklisting' }}"
       when: not already_joined
+    ## End Blacklisting Section & SSH Login Troubleshooting Section ##
 
-    # Final status report - only for hosts that needed domain joining
+    ## Final status report - only for hosts that joined domain ##
     - name: Print final result of all checks
       debug:
         msg: "{% if check_user_after.rc == 0 and check_ldap_after.rc == 0 %}Successfully joined server {{ ansible_facts['fqdn'] }} to the domain{% else %}Failed to join server {{ ansible_facts['fqdn'] }} to the domain. Check manually or rerun playbook.{% endif %}"
       when: not already_joined
+
+
+    ## Configure Sudo Access for AD user ##
+    - name: Create sudoers file for AD user sandeep
+      copy:
+        dest: /etc/sudoers.d/sandeep_sudo
+        content: |
+          # Allow members of AD user sandeep to run all commands as root without password
+          sandeep    ALL=(ALL)    NOPASSWD: ALL
+        mode: '0440'
+        backup: true
+        validate: '/usr/sbin/visudo -cf %s'
+      when: not already_joined
+
+    - name: Verify sudoers file for sandeep user
+      stat:
+        path: /etc/sudoers.d/sandeep_sudo
+      register: sudoers_file_check
+      when: not already_joined
+
+    - name: Print sudoers configuration status
+      debug:
+        msg: "Sudoers access for AD user sandeep: {{ 'Successfully configured' if sudoers_file_check.stat.exists else 'Failed to configure' }}"
+      when: not already_joined and sudoers_file_check is defined  
 ...

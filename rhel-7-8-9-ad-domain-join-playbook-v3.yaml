@@ -116,14 +116,14 @@
       when: not already_joined
     
     # Join domain section - only runs if server is not already joined
-    - name: Install realm package
-      shell: |
-            if ! rpm -q realmd; then
-            yum install -y realmd || echo "Error: No package realmd available"
-            fi
-      register: check_realmpkg
-      failed_when: "'Error: No package realmd available' in check_realmpkg.stdout"
-      when: not already_joined
+    #- name: Install realm package
+    #  shell: |
+    #        if ! rpm -q realmd; then
+    #        yum install -y realmd || echo "Error: No package realmd available"
+    #        fi
+    #  register: check_realmpkg
+    #  failed_when: "'Error: No package realmd available' in check_realmpkg.stdout"
+    #  when: not already_joined
 
     ## Install packages and Join Domain - only if not already joined ##
     - name: Install realm package along with sssd
